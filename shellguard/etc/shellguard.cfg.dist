@@ -773,7 +773,7 @@ epoch_timestamp = false
 # 中文 JSON 日志输出模块
 #
 [output_chinesejson]
-enabled = false
+enabled = true
 logfile = ${honeypot:log_path}/shellguard_chinese.json
 epoch_timestamp = false
 

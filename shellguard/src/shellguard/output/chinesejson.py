@@ -160,7 +160,7 @@ class Output(shellguard.core.output.Output):
             "Closing TTY log": "关闭TTY日志",
             "Terminal size": "终端尺寸",
             "Session closed": "会话关闭",
-            "Connection lost": "连接丢失",
+            "Connection lost": "连接断开",
             "direct-tcpip": "直接TCP-IP",
             "Downloaded": "已下载",
         }

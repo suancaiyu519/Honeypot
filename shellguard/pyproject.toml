@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=80", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "shellguard"
+dynamic = ["version"]
+description="ShellGuard SSH/Telnet Honeypot - Based on Cowrie."
+license="BSD-3-Clause"
+license-files = [ "LICENSE.rst" ]
+authors = [ {name = "ShellGuard Team"}, ]
+keywords=["ssh", "telnet", "honeypot", "security"]
+requires-python = ">=2.7, !=3.0.*, !=3.1.*, !=3.2.*, !=3.3.*, !=3.4.*, !=3.5.*, !=3.6.*, !=3.7.*, !=3.8.*, !=3.9.*, <4"
+readme="README.rst"
+classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: No Input/Output (Daemon)",
+        "Framework :: Twisted",
+        "Intended Audience :: Developers",
+        "Intended Audience :: System Administrators",
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: POSIX",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3 :: Only",
+        "Topic :: Security"
+]
+
+dependencies = [
+        "attrs==25.4.0",
+        "bcrypt==5.0.0",
+        "cryptography==46.0.3",
+        "hyperlink==21.0.0",
+        "idna==3.11",
+        "packaging==25.0",
+        "pyasn1_modules==0.4.2",
+        "requests==2.32.5",
+        "service_identity==24.2.0",
+        "tftpy==0.8.6",
+        "treq==25.5.0",
+        "twisted[conch]==25.5.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+version_file = "src/shellguard/_version.py"

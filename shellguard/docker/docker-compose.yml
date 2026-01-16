@@ -1,0 +1,19 @@
+---
+volumes:
+  shellguard-etc:
+  shellguard-var:
+
+
+services:
+  shellguard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    # image: shellguard/shellguard:latest  # 改用本地构建
+    restart: always
+    ports:
+      - "2222:2222"
+      - "2223:2223"
+    volumes:
+      - shellguard-etc:/shellguard/shellguard-git/etc
+      - shellguard-var:/shellguard/shellguard-git/var

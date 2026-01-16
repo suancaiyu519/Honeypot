@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # ArduPilot SITL服务
+  ardupilot-sitl:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.sitl
+    container_name: drone_sitl
+    networks:
+      - drone_network
+    environment:
+      - SITL_LAT=39.9042
+      - SITL_LON=116.4074
+      - SITL_ALT=100
+      - SITL_HDG=0
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "pgrep", "-f", "arducopter" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # MAVLink代理服务
+  mavlink-proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.proxy
+    container_name: drone_proxy
+    ports:
+      - "14550:14550/udp"
+    depends_on:
+      - ardupilot-sitl
+    networks:
+      - drone_network
+    volumes:
+      - ../logs:/app/logs
+    restart: unless-stopped
+    environment:
+      - PROXY_SITL_HOST=ardupilot-sitl
+    healthcheck:
+      test: [ "CMD", "pgrep", "-f", "drone_proxy" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  drone_network:
+    driver: bridge

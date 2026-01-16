@@ -1,0 +1,35 @@
+# 可执行文件和大型二进制文件
+*.AppImage
+*.exe
+*.dmg
+*.pkg
+
+# 构建产物
+Drone/build/
+Drone/drone_honeypot
+Drone/drone_proxy
+*.o
+*.a
+*.so
+
+# 日志文件
+*.log
+logs/
+Drone/logs/
+
+# 临时文件
+*.tmp
+*.swp
+*~
+
+# Docker 相关
+.dockerignore
+
+# IDE 配置
+.vscode/
+.idea/
+*.sublime-*
+
+# 操作系统
+.DS_Store
+Thumbs.db

@@ -58,7 +58,7 @@ int logger_init(void) {
         return -1;
     }
     
-    printf("[日志] 日志系统初始化成功，文件: %s\n", log_filename);
+    printf("日志系统初始化成功，文件: %s\n", log_filename);
     return 0;
 }
 
@@ -451,6 +451,6 @@ void logger_close(void) {
     if (log_file) {
         fclose(log_file);
         log_file = NULL;
-        printf("[日志] 日志系统已关闭\n");
+        printf("日志系统已关闭\n");
     }
 }

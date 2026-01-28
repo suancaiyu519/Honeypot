@@ -30,7 +30,7 @@ static volatile int g_proxy_running = 1;
 static int create_udp_socket(uint16_t port, int reuse) {
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        perror("[代理] UDP socket创建失败");
+        perror("UDP socket创建失败");
         return -1;
     }
     
@@ -38,7 +38,7 @@ static int create_udp_socket(uint16_t port, int reuse) {
     if (reuse) {
         int opt = 1;
         if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-            perror("[代理] setsockopt(SO_REUSEADDR)失败");
+            perror("setsockopt(SO_REUSEADDR)失败");
         }
     }
     
@@ -51,7 +51,7 @@ static int create_udp_socket(uint16_t port, int reuse) {
         addr.sin_port = htons(port);
         
         if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            perror("[代理] UDP bind失败");
+            perror("UDP bind失败");
             close(sockfd);
             return -1;
         }
@@ -66,7 +66,7 @@ static int create_udp_socket(uint16_t port, int reuse) {
 static int create_tcp_connection(const char *host, uint16_t port) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
-        perror("[代理] TCP socket创建失败");
+        perror("TCP socket创建失败");
         return -1;
     }
     
@@ -76,20 +76,20 @@ static int create_tcp_connection(const char *host, uint16_t port) {
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
-        fprintf(stderr, "[代理] 无效的地址: %s\n", host);
+        fprintf(stderr, "无效的地址: %s\n", host);
         close(sockfd);
         return -1;
     }
     
     // 连接
-    printf("[代理] 正在连接 SITL (%s:%d)...\n", host, port);
+    printf("正在连接 SITL (%s:%d)...\n", host, port);
     if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        perror("[代理] TCP连接失败");
+        perror("TCP连接失败");
         close(sockfd);
         return -1;
     }
     
-    printf("[代理] TCP连接成功！\n");
+    printf("TCP连接成功\n");
     return sockfd;
 }
 
@@ -105,7 +105,7 @@ static void forward_to_sitl(const uint8_t *data, size_t len) {
     
     ssize_t sent = send(g_internal_sock, data, len, 0);
     if (sent < 0) {
-        perror("[代理] 发送到SITL失败");
+        perror("发送到SITL失败");
         g_sitl_connected = 0;
         return;
     }
@@ -125,7 +125,7 @@ static void forward_to_client(const uint8_t *data, size_t len) {
     ssize_t sent = sendto(g_external_sock, data, len, 0,
                          (struct sockaddr*)&g_client.addr, g_client.addr_len);
     if (sent < 0) {
-        perror("[代理] 发送到客户端失败");
+        perror("发送到客户端失败");
         return;
     }
     
@@ -148,7 +148,7 @@ static void handle_client_data(const uint8_t *data, size_t len,
         
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr->sin_addr, ip_str, sizeof(ip_str));
-        printf("[代理] 客户端连接: %s:%d\n", ip_str, ntohs(client_addr->sin_port));
+        printf("客户端连接: %s:%d\n", ip_str, ntohs(client_addr->sin_port));
         
         // 记录连接日志
         client_info_t log_client;
@@ -162,8 +162,7 @@ static void handle_client_data(const uint8_t *data, size_t len,
     g_client.last_seen = time(NULL);
     g_stats.bytes_from_client += len;
     
-    // 调试：显示接收到的数据
-    printf("[调试] 收到客户端数据: %zu 字节, 起始字节: 0x%02x\n", len, data[0]);
+
     
     // 解析MAVLink消息（用于日志）- 支持多个消息
     client_info_t log_client;
@@ -184,8 +183,7 @@ static void handle_client_data(const uint8_t *data, size_t len,
             size_t msg_len = header_len + msg.len + MAVLINK_CHECKSUM_LEN;
             msg_count++;
             
-            printf("[调试] 消息 #%d: ID=%d, 长度=%d, payload=%d\n", 
-                   msg_count, msg.msgid, (int)msg_len, msg.len);
+
             
             // 根据消息类型记录
             switch (msg.msgid) {
@@ -257,14 +255,13 @@ static void handle_client_data(const uint8_t *data, size_t len,
         } else {
             // 无法解析，跳出循环
             if (offset < len) {
-                printf("[调试] 无法解析剩余数据 (offset=%zu, len=%zu, 剩余=%zu)\n", 
-                       offset, len, len - offset);
+
             }
             break;
         }
     }
     
-    printf("[调试] 本次共解析 %d 条消息\n", msg_count);
+
     
     // 转发到SITL
     forward_to_sitl(data, len);
@@ -285,7 +282,7 @@ int proxy_init(void) {
     memset(&g_client, 0, sizeof(g_client));
     
     // 创建外部UDP socket（监听客户端）
-    printf("[代理] 创建外部UDP socket (端口 %d)...\n", PROXY_EXTERNAL_PORT);
+    printf("创建外部UDP socket (端口 %d)...\n", PROXY_EXTERNAL_PORT);
     g_external_sock = create_udp_socket(PROXY_EXTERNAL_PORT, 1);
     if (g_external_sock < 0) {
         return -1;
@@ -300,9 +297,9 @@ int proxy_init(void) {
     
     g_sitl_connected = 1;
     
-    printf("[代理] 初始化完成\n");
-    printf("[代理] 外部端口: UDP %d (等待QGroundControl连接)\n", PROXY_EXTERNAL_PORT);
-    printf("[代理] 内部连接: TCP %s:%d (已连接SITL)\n", PROXY_SITL_HOST, PROXY_INTERNAL_PORT);
+    printf("初始化完成\n");
+    printf("外部端口: UDP %d (等待QGroundControl连接)\n", PROXY_EXTERNAL_PORT);
+    printf("内部连接: TCP %s:%d (已连接SITL)\n", PROXY_SITL_HOST, PROXY_INTERNAL_PORT);
     
     return 0;
 }
@@ -312,7 +309,7 @@ void proxy_run(void) {
     struct sockaddr_in from_addr;
     socklen_t from_len;
     
-    printf("[代理] 开始运行...\n\n");
+    printf("开始运行...\n\n");
     
     while (g_proxy_running) {
         fd_set readfds;
@@ -337,7 +334,7 @@ void proxy_run(void) {
             if (errno == EINTR) {
                 continue;
             }
-            perror("[代理] select失败");
+            perror("select失败");
             break;
         }
         
@@ -362,13 +359,13 @@ void proxy_run(void) {
             if (recv_len > 0) {
                 handle_sitl_data(buffer, recv_len);
             } else if (recv_len == 0) {
-                printf("[代理] SITL连接断开\n");
+                printf("SITL连接断开\n");
                 g_sitl_connected = 0;
                 close(g_internal_sock);
                 g_internal_sock = -1;
                 break;
             } else {
-                perror("[代理] 接收SITL数据失败");
+                perror("接收SITL数据失败");
                 g_sitl_connected = 0;
             }
         }
@@ -376,8 +373,7 @@ void proxy_run(void) {
 }
 
 void proxy_close(void) {
-    printf("\n[代理] 正在关闭...\n");
-    
+
     if (g_external_sock >= 0) {
         close(g_external_sock);
         g_external_sock = -1;
@@ -388,12 +384,7 @@ void proxy_close(void) {
         g_internal_sock = -1;
     }
     
-    printf("[代理] 关闭完成\n");
-    printf("[代理] 统计信息:\n");
-    printf("  客户端 → SITL: %lu字节, %lu消息\n", 
-           g_stats.bytes_to_sitl, g_stats.messages_from_client);
-    printf("  SITL → 客户端: %lu字节, %lu消息\n",
-           g_stats.bytes_to_client, g_stats.messages_to_client);
+    printf("关闭完成\n");
 }
 
 proxy_stats_t* proxy_get_stats(void) {

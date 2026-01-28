@@ -6,8 +6,17 @@
 #define LOGGER_H
 
 #include <stdint.h>
-#include "network.h"
+#include <netinet/in.h>
+#include <sys/socket.h>
 #include "mavlink.h"
+
+/* 客户端信息结构 */
+typedef struct {
+    struct sockaddr_in addr;
+    socklen_t addr_len;
+    char ip_str[INET_ADDRSTRLEN];
+    uint16_t port;
+} client_info_t;
 
 /**
  * 初始化日志系统

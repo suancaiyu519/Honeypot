@@ -30,7 +30,7 @@ static volatile int g_proxy_running = 1;
 static int create_udp_socket(uint16_t port, int reuse) {
     int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd < 0) {
-        perror("[代理] socket创建失败");
+        perror("[代理] UDP socket创建失败");
         return -1;
     }
     
@@ -51,7 +51,7 @@ static int create_udp_socket(uint16_t port, int reuse) {
         addr.sin_port = htons(port);
         
         if (bind(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-            perror("[代理] bind失败");
+            perror("[代理] UDP bind失败");
             close(sockfd);
             return -1;
         }
@@ -61,13 +61,52 @@ static int create_udp_socket(uint16_t port, int reuse) {
 }
 
 /**
- * 转发数据到SITL
+ * 创建TCP socket并连接到SITL
+ */
+static int create_tcp_connection(const char *host, uint16_t port) {
+    int sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("[代理] TCP socket创建失败");
+        return -1;
+    }
+    
+    // 设置地址
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    if (inet_pton(AF_INET, host, &addr.sin_addr) <= 0) {
+        fprintf(stderr, "[代理] 无效的地址: %s\n", host);
+        close(sockfd);
+        return -1;
+    }
+    
+    // 连接
+    printf("[代理] 正在连接 SITL (%s:%d)...\n", host, port);
+    if (connect(sockfd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        perror("[代理] TCP连接失败");
+        close(sockfd);
+        return -1;
+    }
+    
+    printf("[代理] TCP连接成功！\n");
+    return sockfd;
+}
+
+static int g_sitl_connected = 0;    // SITL连接状态
+
+/**
+ * 转发数据到SITL（通过TCP）
  */
 static void forward_to_sitl(const uint8_t *data, size_t len) {
-    ssize_t sent = sendto(g_internal_sock, data, len, 0,
-                         (struct sockaddr*)&g_sitl_addr, sizeof(g_sitl_addr));
+    if (!g_sitl_connected || g_internal_sock < 0) {
+        return;
+    }
+    
+    ssize_t sent = send(g_internal_sock, data, len, 0);
     if (sent < 0) {
         perror("[代理] 发送到SITL失败");
+        g_sitl_connected = 0;
         return;
     }
     
@@ -109,38 +148,123 @@ static void handle_client_data(const uint8_t *data, size_t len,
         
         char ip_str[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &client_addr->sin_addr, ip_str, sizeof(ip_str));
-        printf("[代理] 新客户端连接: %s:%d\n", ip_str, ntohs(client_addr->sin_port));
+        printf("[代理] 客户端连接: %s:%d\n", ip_str, ntohs(client_addr->sin_port));
+        
+        // 记录连接日志
+        client_info_t log_client;
+        memcpy(&log_client.addr, client_addr, sizeof(struct sockaddr_in));
+        log_client.addr_len = addr_len;
+        strcpy(log_client.ip_str, ip_str);
+        log_client.port = ntohs(client_addr->sin_port);
+        logger_connection(&log_client);
     }
     
     g_client.last_seen = time(NULL);
     g_stats.bytes_from_client += len;
     
-    // 解析MAVLink消息（用于日志）
-    mavlink_message_t msg;
-    if (mavlink_parse_message(data, len, &msg)) {
-        // 记录日志
-        client_info_t log_client;
-        memcpy(&log_client.addr, client_addr, sizeof(struct sockaddr_in));
-        log_client.addr_len = addr_len;
-        
-        // 根据消息类型记录
-        switch (msg.msgid) {
-            case MAVLINK_MSG_ID_HEARTBEAT:
-                logger_heartbeat(&log_client, &msg);
-                break;
-            case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
-            case MAVLINK_MSG_ID_PARAM_REQUEST_READ:
-                logger_request(&log_client, &msg);
-                break;
-            case 76: // COMMAND_LONG
-            case 75: // COMMAND_INT
-                logger_command(&log_client, &msg);
-                break;
-            default:
-                // 记录其他消息
-                break;
+    // 调试：显示接收到的数据
+    printf("[调试] 收到客户端数据: %zu 字节, 起始字节: 0x%02x\n", len, data[0]);
+    
+    // 解析MAVLink消息（用于日志）- 支持多个消息
+    client_info_t log_client;
+    memcpy(&log_client.addr, client_addr, sizeof(struct sockaddr_in));
+    log_client.addr_len = addr_len;
+    inet_ntop(AF_INET, &client_addr->sin_addr, log_client.ip_str, sizeof(log_client.ip_str));
+    log_client.port = ntohs(client_addr->sin_port);
+    
+    size_t offset = 0;
+    int msg_count = 0;
+    static uint16_t last_cmd_id = 0;  // 跟踪上一条命令ID，用于过滤
+    
+    while (offset < len) {
+        mavlink_message_t msg;
+        if (mavlink_parse_message(data + offset, len - offset, &msg)) {
+            // 计算消息总长度（根据协议版本）
+            int header_len = (msg.magic == 0xFD) ? MAVLINK_HEADER_LEN_V2 : MAVLINK_HEADER_LEN_V1;
+            size_t msg_len = header_len + msg.len + MAVLINK_CHECKSUM_LEN;
+            msg_count++;
+            
+            printf("[调试] 消息 #%d: ID=%d, 长度=%d, payload=%d\n", 
+                   msg_count, msg.msgid, (int)msg_len, msg.len);
+            
+            // 根据消息类型记录
+            switch (msg.msgid) {
+                case MAVLINK_MSG_ID_HEARTBEAT:
+                    // 心跳消息太频繁，跳过不记录
+                    break;
+                case 2:   // SYSTEM_TIME - 系统时间同步
+                case 66:  // REQUEST_DATA_STREAM - 数据流请求
+                case 110: // TIMESYNC - 时间同步
+                case 134: // TERRAIN_DATA - 地形数据
+                    // 这些消息太频繁，跳过不记录
+                    break;
+                case 43:  // MISSION_REQUEST - 任务请求
+                case 47:  // MISSION_COUNT - 任务计数
+                case 51:  // MISSION_SET_CURRENT - 设置当前任务
+                    // 任务初始化消息，跳过不记录
+                    break;
+                case MAVLINK_MSG_ID_PARAM_REQUEST_LIST:
+                case MAVLINK_MSG_ID_PARAM_REQUEST_READ:
+                    logger_request(&log_client, &msg);
+                    break;
+                case 76: // COMMAND_LONG
+                    // 过滤频繁的状态轮询命令，只保留真正的控制命令
+                    {
+                        uint16_t command = msg.payload[28] | (msg.payload[29] << 8);
+                        float param1;
+                        memcpy(&param1, &msg.payload[0], 4);
+                        int req_msg_id = (int)param1;
+                        
+                        // 过滤状态轮询命令
+                        if (command == 512) {
+                            // 命令512：请求自动驾驶仪能力，跳过
+                            break;
+                        }
+                        if (command == 511 && (req_msg_id == 242 || req_msg_id == 245)) {
+                            // 命令511请求消息242(返航位置)/245(扩展状态)，跳过
+                            break;
+                        }
+                        if (command == 521 && req_msg_id == 1) {
+                            // 命令521请求消息1(系统状态)，跳过
+                            break;
+                        }
+                        
+                        // 过滤紧随位置命令后的模式确认命令
+                        if (command == 176 && last_cmd_id == 192) {
+                            // 命令176(设置模式)紧随命令192(设置位置)后，跳过
+                            last_cmd_id = command;
+                            break;
+                        }
+                        
+                        last_cmd_id = command;
+                        logger_command(&log_client, &msg);
+                    }
+                    break;
+                case 75: // COMMAND_INT
+                    {
+                        // 获取COMMAND_INT中的命令ID
+                        uint16_t cmd_int = msg.payload[28] | (msg.payload[29] << 8);
+                        last_cmd_id = cmd_int;
+                        logger_command(&log_client, &msg);
+                    }
+                    break;
+                default:
+                    logger_unknown(&log_client, &msg);
+                    break;
+            }
+            
+            offset += msg_len;
+        } else {
+            // 无法解析，跳出循环
+            if (offset < len) {
+                printf("[调试] 无法解析剩余数据 (offset=%zu, len=%zu, 剩余=%zu)\n", 
+                       offset, len, len - offset);
+            }
+            break;
         }
     }
+    
+    printf("[调试] 本次共解析 %d 条消息\n", msg_count);
     
     // 转发到SITL
     forward_to_sitl(data, len);
@@ -160,35 +284,25 @@ int proxy_init(void) {
     memset(&g_stats, 0, sizeof(g_stats));
     memset(&g_client, 0, sizeof(g_client));
     
-    // 创建外部socket（监听客户端）
-    printf("[代理] 创建外部socket (端口 %d)...\n", PROXY_EXTERNAL_PORT);
+    // 创建外部UDP socket（监听客户端）
+    printf("[代理] 创建外部UDP socket (端口 %d)...\n", PROXY_EXTERNAL_PORT);
     g_external_sock = create_udp_socket(PROXY_EXTERNAL_PORT, 1);
     if (g_external_sock < 0) {
         return -1;
     }
     
-    // 创建内部socket（连接SITL）
-    printf("[代理] 创建内部socket...\n");
-    g_internal_sock = create_udp_socket(0, 0);
+    // 创建TCP连接到SITL
+    g_internal_sock = create_tcp_connection(PROXY_SITL_HOST, PROXY_INTERNAL_PORT);
     if (g_internal_sock < 0) {
         close(g_external_sock);
         return -1;
     }
     
-    // 设置SITL地址
-    memset(&g_sitl_addr, 0, sizeof(g_sitl_addr));
-    g_sitl_addr.sin_family = AF_INET;
-    g_sitl_addr.sin_port = htons(PROXY_INTERNAL_PORT);
-    if (inet_pton(AF_INET, PROXY_SITL_HOST, &g_sitl_addr.sin_addr) <= 0) {
-        fprintf(stderr, "[代理] 无效的SITL地址: %s\n", PROXY_SITL_HOST);
-        close(g_external_sock);
-        close(g_internal_sock);
-        return -1;
-    }
+    g_sitl_connected = 1;
     
     printf("[代理] 初始化完成\n");
-    printf("[代理] 外部端口: %d (QGroundControl)\n", PROXY_EXTERNAL_PORT);
-    printf("[代理] 内部地址: %s:%d (SITL)\n", PROXY_SITL_HOST, PROXY_INTERNAL_PORT);
+    printf("[代理] 外部端口: UDP %d (等待QGroundControl连接)\n", PROXY_EXTERNAL_PORT);
+    printf("[代理] 内部连接: TCP %s:%d (已连接SITL)\n", PROXY_SITL_HOST, PROXY_INTERNAL_PORT);
     
     return 0;
 }
@@ -207,7 +321,10 @@ void proxy_run(void) {
         
         FD_ZERO(&readfds);
         FD_SET(g_external_sock, &readfds);
-        FD_SET(g_internal_sock, &readfds);
+        
+        if (g_sitl_connected && g_internal_sock >= 0) {
+            FD_SET(g_internal_sock, &readfds);
+        }
         
         max_fd = (g_external_sock > g_internal_sock) ? g_external_sock : g_internal_sock;
         
@@ -229,7 +346,7 @@ void proxy_run(void) {
             continue;
         }
         
-        // 检查外部socket（来自客户端）
+        // 检查外部UDP socket（来自客户端）
         if (FD_ISSET(g_external_sock, &readfds)) {
             from_len = sizeof(from_addr);
             ssize_t recv_len = recvfrom(g_external_sock, buffer, sizeof(buffer), 0,
@@ -239,12 +356,20 @@ void proxy_run(void) {
             }
         }
         
-        // 检查内部socket（来自SITL）
-        if (FD_ISSET(g_internal_sock, &readfds)) {
-            ssize_t recv_len = recvfrom(g_internal_sock, buffer, sizeof(buffer), 0,
-                                       NULL, NULL);
+        // 检查内部TCP socket（来自SITL）
+        if (g_sitl_connected && FD_ISSET(g_internal_sock, &readfds)) {
+            ssize_t recv_len = recv(g_internal_sock, buffer, sizeof(buffer), 0);
             if (recv_len > 0) {
                 handle_sitl_data(buffer, recv_len);
+            } else if (recv_len == 0) {
+                printf("[代理] SITL连接断开\n");
+                g_sitl_connected = 0;
+                close(g_internal_sock);
+                g_internal_sock = -1;
+                break;
+            } else {
+                perror("[代理] 接收SITL数据失败");
+                g_sitl_connected = 0;
             }
         }
     }
@@ -273,4 +398,8 @@ void proxy_close(void) {
 
 proxy_stats_t* proxy_get_stats(void) {
     return &g_stats;
+}
+
+void proxy_stop(void) {
+    g_proxy_running = 0;
 }

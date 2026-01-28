@@ -15,6 +15,7 @@ static volatile int g_running = 1;
 void signal_handler(int sig) {
     if (sig == SIGINT || sig == SIGTERM) {
         printf("\n[系统] 接收到退出信号\n");
+        proxy_stop();  // 停止代理运行
         g_running = 0;
     }
 }

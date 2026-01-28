@@ -1,48 +1,38 @@
 #!/bin/bash
-# start_sitl.sh - ArduPilot SITL启动脚本
+# start_sitl.sh - 简易 SITL 启动器 (固定翼)
 
-ARDUPILOT_DIR="${ARDUPILOT_DIR:-$HOME/ardupilot}"
+SITL_BIN="$HOME/ardupilot/build/sitl/bin/arduplane"
 
-# 检查ArduPilot是否已安装
-if [ ! -d "$ARDUPILOT_DIR" ]; then
-    echo "[错误] ArduPilot未安装在: $ARDUPILOT_DIR"
-    echo "请先运行: ./scripts/setup_sitl.sh"
+# 检查是否安装
+if [ ! -f "$SITL_BIN" ]; then
+    echo "❌ 错误: 未找到 ArduPlane 执行文件"
+    echo "请先编译: cd ~/ardupilot && ./waf configure --board sitl && ./waf plane"
     exit 1
 fi
 
-# 默认参数
-HOME_LAT="${SITL_LAT:-39.9042}"   # 北京天安门
-HOME_LON="${SITL_LON:-116.4074}"
-HOME_ALT="${SITL_ALT:-100}"
-HOME_HDG="${SITL_HDG:-0}"
-
-# SITL端口
-SITL_PORT="${SITL_PORT:-14551}"
-
 echo "========================================"
-echo "  启动ArduPilot SITL"
+echo "  启动 SITL - 固定翼模式"
 echo "========================================"
-echo ""
-echo "Home位置: $HOME_LAT,$HOME_LON,$HOME_ALT,$HOME_HDG"
-echo "监听端口: $SITL_PORT"
+echo "提示: 直接启动 ArduPlane 并等待 QGC 连接。"
 echo ""
 
-cd "$ARDUPILOT_DIR/ArduCopter" || exit 1
+cd "$HOME/ardupilot/ArduPlane"
 
-# 启动SITL
-# -I 0: 实例0
-# --console: 启用控制台
-# --map: 启用地图
-# --out: 设置MAVLink输出端口
-../Tools/autotest/sim_vehicle.py \
-    --vehicle=ArduCopter \
-    --frame=quad \
-    -L "$HOME_LAT,$HOME_LON,$HOME_ALT,$HOME_HDG" \
-    -I 0 \
-    --console \
-    --map \
-    --speedup=1 \
-    --out=udp:127.0.0.1:$SITL_PORT
+# 启动参数说明:
+# --model plane     : 固定翼飞机
+# --home ...        : 起始位置 (北京郊区)
+# --speedup 1       : 1倍速
+# --defaults ...    : 加载固定翼默认参数
+# -I0               : 实例0
 
-echo ""
-echo "SITL已退出"
+# 关键：SITL 默认监听 TCP 5760
+# 最简单方案：直接运行，它会在 TCP 5760 等待连接
+
+"$SITL_BIN" \
+    --model plane \
+    --home "39.5098,116.4105,30,0" \
+    --speedup 1 \
+    --defaults "$HOME/ardupilot/Tools/autotest/default_params/plane.parm,$HOME/Honeypot/Drone/sitl/plane.parm" \
+    -I0
+
+# 注意：这个命令会占用终端

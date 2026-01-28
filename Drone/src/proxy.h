@@ -9,8 +9,8 @@
 #include <netinet/in.h>
 
 /* 代理配置 */
-#define PROXY_EXTERNAL_PORT 14550  // 外部端口（QGroundControl连接）
-#define PROXY_INTERNAL_PORT 14551  // 内部端口（SITL连接）
+#define PROXY_EXTERNAL_PORT 14555  // 外部端口（QGroundControl连接）
+#define PROXY_INTERNAL_PORT 5760   // 内部端口（SITL TCP端口）
 #define PROXY_SITL_HOST "127.0.0.1" // SITL地址
 #define PROXY_BUFFER_SIZE 2048      // 缓冲区大小
 
@@ -53,5 +53,10 @@ void proxy_close(void);
  * @return 统计信息指针
  */
 proxy_stats_t* proxy_get_stats(void);
+
+/**
+ * 停止代理运行
+ */
+void proxy_stop(void);
 
 #endif /* PROXY_H */
